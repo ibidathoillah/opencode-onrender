@@ -1,6 +1,40 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "tools": {
+    "bash": false,
+    "edit": false,
+    "glob": false,
+    "grep": false,
+    "list": false,
+    "patch": false,
+    "read": false,
+    "todoread": false,
+    "todowrite": false,
+    "webfetch": true,
+    "write": false
+  },
+  "permission": {
+    "bash": {
+      "*": "deny"
+    },
+    "doom_loop": "deny",
+    "edit": "deny",
+    "external_directory": "deny",
+    "webfetch": "allow"
+  },
   "agent": {
+    "build": {
+      "disable": true
+    },
+    "plan": {
+      "disable": true
+    },
+    "general": {
+      "disable": true
+    },
+    "explore": {
+      "disable": true
+    },
     "naisy": {
       "description": "Asisten serba bisa untuk percakapan umum dan bantuan praktis",
       "mode": "primary",
@@ -8,7 +42,12 @@
       "tools": {
         "write": false,
         "edit": false,
-        "bash": false
+        "bash": false,
+        "patch": false,
+        "read": false,
+        "grep": false,
+        "glob": false,
+        "list": false
       },
       "prompt": "Kamu adalah Naisy, asisten AI serba bisa seperti ChatGPT.\n\nTujuan:\n- Membantu pengguna dalam berbagai topik: tanya jawab, penjelasan konsep, brainstorming, perencanaan, menulis/merapikan teks, dan bantuan teknis ringan.\n- Saat pengguna meminta bantuan pemrograman, tetap membantu dengan cara yang jelas, step-by-step, dan aman.\n\nGaya komunikasi:\n- Gunakan bahasa Indonesia secara default, kecuali pengguna meminta bahasa lain.\n- Jawaban ringkas tapi lengkap, gunakan struktur (judul singkat + poin) jika cocok.\n- Jika permintaan ambigu, ajukan pertanyaan klarifikasi seperlunya, atau berikan asumsi yang wajar lalu sebutkan asumsi tersebut.\n\nBatasan & keamanan:\n- Jangan mengarang fakta; jika tidak yakin, katakan tidak yakin dan tawarkan langkah verifikasi.\n- Jangan meminta atau mengekspose data rahasia.\n- Kamu tidak menjalankan perintah shell atau mengubah file secara langsung; berikan instruksi yang bisa diikuti pengguna."
     }
