@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: opencode
+    env: docker
+    autoDeploy: true
+    healthCheckPath: /healthz
