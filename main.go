@@ -2,7 +2,6 @@ package main
 
 import (
   "bufio"
-  "fmt"
   "io"
   "log"
   "net/http"
@@ -124,7 +123,9 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
         }
         return
       }
-      fmt.Println(line)
+
+      log.Println(line)
+
       // Forward only matching session
       if strings.HasPrefix(line, "data: ") &&
         strings.Contains(line, `"sessionID":"`+sessionID+`"`) {
