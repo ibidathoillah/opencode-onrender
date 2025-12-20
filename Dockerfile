@@ -1,7 +1,7 @@
 FROM debian:bookworm-slim
 
 # =============================
-# Base tools
+# Dependencies
 # =============================
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -27,7 +27,7 @@ COPY opencode.json /app/opencode.json
 ENV OPENCODE_CONFIG=/app/opencode.json
 
 # =============================
-# SSE filter (Bash, defensive)
+# SSE filter (bash)
 # =============================
 RUN cat > /app/sse-filter.sh <<'EOF'
 #!/usr/bin/env bash
@@ -35,13 +35,11 @@ RUN cat > /app/sse-filter.sh <<'EOF'
 SESSION_ID="$1"
 OPENCODE_URL="http://127.0.0.1:4097/global/event"
 
-# CGI response header
 echo "Content-Type: text/event-stream"
 echo "Cache-Control: no-cache"
 echo "Connection: keep-alive"
 echo
 
-# Connect ke OpenCode global SSE
 curl -sN \
   -H "Authorization: Bearer ${OPENCODE_API_TOKEN}" \
   "$OPENCODE_URL" \
@@ -62,42 +60,10 @@ EOF
 RUN chmod +x /app/sse-filter.sh
 
 # =============================
-# Expose port
-# =============================
-EXPOSE 4096
-
-# =============================
 # Entrypoint
 # =============================
-CMD ["bash","-lc", "\
-  PORT=\"${PORT:-4096}\"; \
-  cat > /etc/caddy/Caddyfile <<EOF\n\
-  {\n\
-  admin off\n\
-  }\n\
-  \n\
-  :${PORT} {\n\
-  handle /healthz {\n\
-  respond \"ok\" 200\n\
-  }\n\
-  \n\
-  handle_path /sse/* {\n\
-  root * /app\n\
-  cgi /sse/* /app/sse-filter.sh\n\
-  }\n\
-  \n\
-  @authorized {\n\
-  header Authorization \"Bearer {env.OPENCODE_API_TOKEN}\"\n\
-  }\n\
-  \n\
-  handle @authorized {\n\
-  reverse_proxy 127.0.0.1:4097\n\
-  }\n\
-  \n\
-  handle {\n\
-  respond \"Unauthorized\" 401\n\
-  }\n\
-  }\n\
-  EOF\n\
-  opencode serve --hostname 127.0.0.1 --port 4097 & \
-  exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"]
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 4096
+CMD ["/entrypoint.sh"]
