@@ -1,17 +1,103 @@
 FROM debian:bookworm-slim
 
+# =============================
+# Base tools
+# =============================
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl bash git libsqlite3-0 caddy \
+  && apt-get install -y --no-install-recommends \
+  ca-certificates \
+  curl \
+  bash \
+  jq \
+  libsqlite3-0 \
+  caddy \
   && rm -rf /var/lib/apt/lists/*
 
+# =============================
+# Install OpenCode
+# =============================
 ENV OPENCODE_INSTALL_DIR=/usr/local/bin
-
 RUN curl -fsSL https://opencode.ai/install | bash
 
+# =============================
+# App config
+# =============================
 WORKDIR /app
 COPY opencode.json /app/opencode.json
 ENV OPENCODE_CONFIG=/app/opencode.json
 
+# =============================
+# SSE filter (Bash, defensive)
+# =============================
+RUN cat > /app/sse-filter.sh <<'EOF'
+#!/usr/bin/env bash
+
+SESSION_ID="$1"
+OPENCODE_URL="http://127.0.0.1:4097/global/event"
+
+# CGI response header
+echo "Content-Type: text/event-stream"
+echo "Cache-Control: no-cache"
+echo "Connection: keep-alive"
+echo
+
+# Connect ke OpenCode global SSE
+curl -sN \
+  -H "Authorization: Bearer ${OPENCODE_API_TOKEN}" \
+  "$OPENCODE_URL" \
+| sed -n 's/^data: //p' \
+| jq --unbuffered -c '
+    select(
+      .type == "chat.message"
+      and .sessionId?
+      and .sessionId == env.SESSION_ID
+    )
+  ' \
+| while read -r json; do
+    echo "data: $json"
+    echo
+  done
+EOF
+
+RUN chmod +x /app/sse-filter.sh
+
+# =============================
+# Expose port
+# =============================
 EXPOSE 4096
 
-CMD ["bash","-lc","PORT=\"${PORT:-4096}\"; cat > /etc/caddy/Caddyfile <<EOF\n{\n  admin off\n}\n\n:${PORT} {\n  @health {\n    path /healthz\n  }\n\n  handle @health {\n    respond \"ok\" 200\n  }\n\n  @authorized {\n    header Authorization \"Bearer {env.OPENCODE_API_TOKEN}\"\n  }\n\n  handle @authorized {\n    reverse_proxy 127.0.0.1:4097\n  }\n\n  handle {\n    respond \"Unauthorized\" 401\n  }\n}\nEOF\nopencode serve --hostname 127.0.0.1 --port 4097 & exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"]
+# =============================
+# Entrypoint
+# =============================
+CMD ["bash","-lc", "\
+  PORT=\"${PORT:-4096}\"; \
+  cat > /etc/caddy/Caddyfile <<EOF\n\
+  {\n\
+  admin off\n\
+  }\n\
+  \n\
+  :${PORT} {\n\
+  handle /healthz {\n\
+  respond \"ok\" 200\n\
+  }\n\
+  \n\
+  handle_path /sse/* {\n\
+  root * /app\n\
+  cgi /sse/* /app/sse-filter.sh\n\
+  }\n\
+  \n\
+  @authorized {\n\
+  header Authorization \"Bearer {env.OPENCODE_API_TOKEN}\"\n\
+  }\n\
+  \n\
+  handle @authorized {\n\
+  reverse_proxy 127.0.0.1:4097\n\
+  }\n\
+  \n\
+  handle {\n\
+  respond \"Unauthorized\" 401\n\
+  }\n\
+  }\n\
+  EOF\n\
+  opencode serve --hostname 127.0.0.1 --port 4097 & \
+  exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"]
