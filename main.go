@@ -127,7 +127,7 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
       fmt.Println(line)
       // Forward only matching session
       if strings.HasPrefix(line, "data: ") &&
-        strings.Contains(line, `"sessionId":"`+sessionID+`"`) {
+        strings.Contains(line, `"sessionID":"`+sessionID+`"`) {
 
         w.Write([]byte(line))
         flusher.Flush()
