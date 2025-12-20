@@ -1,12 +1,12 @@
 # =============================
-# Build TinyGo binary
+# Build Go binary
 # =============================
 FROM golang:1.22-alpine AS Build
 
 WORKDIR /src
 COPY main.go .
 
-RUN tinygo build \
+RUN go build \
   -o proxy \
   -target=linux-amd64 \
   -no-debug \
