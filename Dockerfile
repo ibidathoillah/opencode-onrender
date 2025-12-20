@@ -1,7 +1,7 @@
 # =============================
 # Build TinyGo binary
 # =============================
-FROM tinygo/tinygo:0.31.2 AS build
+FROM golang:1.22-alpine AS Build
 
 WORKDIR /src
 COPY main.go .
