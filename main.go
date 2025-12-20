@@ -2,10 +2,12 @@ package main
 
 import (
   "bufio"
+  "io"
   "log"
   "net/http"
   "os"
   "strings"
+  "time"
 )
 
 var (
@@ -17,7 +19,7 @@ var (
 // BLOCKLIST (GLOBAL ENDPOINTS)
 // ============================
 var blockedPrefixes = []string{
-  "/global/event",
+  "/global/event", // HARUS lewat /sse/*
   "/project",
   "/path",
   "/vcs",
@@ -36,7 +38,7 @@ var blockedPrefixes = []string{
 }
 
 // ============================
-// Helpers
+// HELPERS
 // ============================
 func isBlocked(path string) bool {
   for _, p := range blockedPrefixes {
@@ -52,33 +54,46 @@ func authorized(r *http.Request) bool {
 }
 
 // ============================
-// SSE FILTER
+// SSE HANDLER (SSE → SSE)
 // ============================
 func sseHandler(w http.ResponseWriter, r *http.Request) {
   if !authorized(r) {
-    http.Error(w, "Unauthorized", 401)
+    http.Error(w, "Unauthorized", http.StatusUnauthorized)
     return
   }
 
   sessionID := strings.TrimPrefix(r.URL.Path, "/sse/")
   if sessionID == "" {
-    http.Error(w, "Missing sessionId", 400)
+    http.Error(w, "Missing sessionId", http.StatusBadRequest)
     return
   }
 
-  req, _ := http.NewRequest("GET", opencodeURL+"/global/event", nil)
-  req.Header.Set("Authorization", "Bearer "+apiToken)
-
-  resp, err := http.DefaultClient.Do(req)
+  req, err := http.NewRequest("GET", opencodeURL+"/global/event", nil)
   if err != nil {
-    http.Error(w, "Upstream error", 502)
+    http.Error(w, "Bad request", 400)
+    return
+  }
+
+  req.Header.Set("Authorization", "Bearer "+apiToken)
+  req.Header.Set("Accept", "text/event-stream")
+
+  // IMPORTANT: no timeout for SSE
+  client := &http.Client{
+    Timeout: 0,
+  }
+
+  resp, err := client.Do(req)
+  if err != nil {
+    http.Error(w, "Upstream SSE error", 502)
     return
   }
   defer resp.Body.Close()
 
+  // SSE headers to client
   w.Header().Set("Content-Type", "text/event-stream")
   w.Header().Set("Cache-Control", "no-cache")
   w.Header().Set("Connection", "keep-alive")
+  w.WriteHeader(http.StatusOK)
 
   flusher, ok := w.(http.Flusher)
   if !ok {
@@ -86,26 +101,42 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  scanner := bufio.NewScanner(resp.Body)
-  for scanner.Scan() {
-    line := scanner.Text()
+  reader := bufio.NewReader(resp.Body)
+  heartbeat := time.NewTicker(25 * time.Second)
+  defer heartbeat.Stop()
 
-    if !strings.HasPrefix(line, "data: ") {
-      continue
-    }
+  for {
+    select {
+    case <-r.Context().Done():
+      return // client disconnected
 
-    data := line[6:]
-
-    // VERY defensive filter
-    if strings.Contains(data, `"sessionId":"`+sessionID+`"`) {
-      w.Write([]byte("data: " + data + "\n\n"))
+    case <-heartbeat.C:
+      // keep-alive comment
+      w.Write([]byte(": ping\n\n"))
       flusher.Flush()
+
+    default:
+      line, err := reader.ReadString('\n')
+      if err != nil {
+        if err == io.EOF {
+          return
+        }
+        return
+      }
+
+      // Forward only matching session
+      if strings.HasPrefix(line, "data: ") &&
+        strings.Contains(line, `"sessionId":"`+sessionID+`"`) {
+
+        w.Write([]byte(line))
+        flusher.Flush()
+      }
     }
   }
 }
 
 // ============================
-// MAIN PROXY
+// REST PROXY (NON-SSE)
 // ============================
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
   if isBlocked(r.URL.Path) {
@@ -114,15 +145,20 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
   }
 
   if !authorized(r) {
-    http.Error(w, "Unauthorized", 401)
+    http.Error(w, "Unauthorized", http.StatusUnauthorized)
     return
   }
 
-  req, _ := http.NewRequest(
+  req, err := http.NewRequest(
     r.Method,
     opencodeURL+r.URL.Path,
     r.Body,
   )
+  if err != nil {
+    http.Error(w, "Bad request", 400)
+    return
+  }
+
   req.Header = r.Header.Clone()
 
   resp, err := http.DefaultClient.Do(req)
@@ -136,7 +172,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
     w.Header()[k] = v
   }
   w.WriteHeader(resp.StatusCode)
-  bufio.NewReader(resp.Body).WriteTo(w)
+  io.Copy(w, resp.Body)
 }
 
 // ============================
@@ -152,9 +188,12 @@ func main() {
     w.Write([]byte("ok"))
   })
 
+  // SSE endpoint
   http.HandleFunc("/sse/", sseHandler)
+
+  // REST proxy
   http.HandleFunc("/", proxyHandler)
 
-  log.Println("Go proxy listening on :" + port)
+  log.Println("Go SSE proxy listening on :" + port)
   log.Fatal(http.ListenAndServe(":"+port, nil))
 }
