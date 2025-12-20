@@ -1,8 +1,16 @@
-FROM debian:bookworm-slim
+# =============================
+# Build custom Caddy (with CGI)
+# =============================
+FROM caddy:builder AS caddy-builder
+
+RUN xcaddy build \
+  --with github.com/caddyserver/caddy/v2/modules/http.handlers.cgi
 
 # =============================
-# Dependencies
+# Runtime
 # =============================
+FROM debian:bookworm-slim
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
   ca-certificates \
@@ -10,8 +18,10 @@ RUN apt-get update \
   bash \
   jq \
   libsqlite3-0 \
-  caddy \
   && rm -rf /var/lib/apt/lists/*
+
+# Copy custom caddy
+COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
 
 # =============================
 # Install OpenCode
@@ -27,7 +37,7 @@ COPY opencode.json /app/opencode.json
 ENV OPENCODE_CONFIG=/app/opencode.json
 
 # =============================
-# SSE filter (bash)
+# SSE filter (Bash CGI)
 # =============================
 RUN cat > /app/sse-filter.sh <<'EOF'
 #!/usr/bin/env bash

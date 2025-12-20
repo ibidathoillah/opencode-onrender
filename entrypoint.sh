@@ -14,10 +14,16 @@ cat > /etc/caddy/Caddyfile <<EOF
     respond "ok" 200
   }
 
-  # Per-session SSE
+  # BLOCK GLOBAL EVENT (PUBLIC)
+  handle /global/event {
+    respond "Not Found" 404
+  }
+
+  # Per-session SSE (CGI)
   handle_path /sse/* {
-    root * /app
-    cgi /sse/* /app/sse-filter.sh
+    cgi {
+      script /app/sse-filter.sh
+    }
   }
 
   @authorized {
@@ -34,8 +40,5 @@ cat > /etc/caddy/Caddyfile <<EOF
 }
 EOF
 
-echo "[INFO] Starting OpenCode..."
 opencode serve --hostname 127.0.0.1 --port 4097 &
-
-echo "[INFO] Starting Caddy..."
 exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
