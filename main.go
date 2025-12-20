@@ -137,18 +137,27 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 			return // client disconnected
 
 		case <-heartbeat.C:
-			// keep-alive comment
-			w.Write([]byte(": ping\n\n"))
+			w.Write([]byte("data: {\"type\":\"ping\"}\n\n"))
 			flusher.Flush()
 
 		case event, ok := <-events:
 			if !ok {
 				return
 			}
-			if eventMatchesSession(event, sessionID) {
-				w.Write(event)
-				flusher.Flush()
+			payloads := extractJSONPayloads(event)
+			for _, payload := range payloads {
+				if !jsonContainsSessionID(payload, sessionID) {
+					continue
+				}
+				b, err := json.Marshal(payload)
+				if err != nil {
+					continue
+				}
+				w.Write([]byte("data: "))
+				w.Write(b)
+				w.Write([]byte("\n\n"))
 			}
+			flusher.Flush()
 		case err := <-readErr:
 			if err == io.EOF {
 				return
@@ -158,7 +167,8 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func eventMatchesSession(event []byte, sessionID string) bool {
+func extractJSONPayloads(event []byte) []any {
+	var dataLines [][]byte
 	for _, line := range bytes.Split(event, []byte("\n")) {
 		if !bytes.HasPrefix(line, []byte("data:")) {
 			continue
@@ -167,20 +177,26 @@ func eventMatchesSession(event []byte, sessionID string) bool {
 		if len(payload) == 0 {
 			continue
 		}
+		dataLines = append(dataLines, payload)
+	}
+	if len(dataLines) == 0 {
+		return nil
+	}
 
-		var v any
-		if err := json.Unmarshal(payload, &v); err == nil {
-			if jsonContainsSessionID(v, sessionID) {
-				return true
-			}
-			continue
-		}
+	joined := bytes.Join(dataLines, []byte("\n"))
+	var v any
+	if err := json.Unmarshal(joined, &v); err == nil {
+		return []any{v}
+	}
 
-		if bytes.Contains(payload, []byte(sessionID)) {
-			return true
+	var out []any
+	for _, dl := range dataLines {
+		var vv any
+		if err := json.Unmarshal(dl, &vv); err == nil {
+			out = append(out, vv)
 		}
 	}
-	return false
+	return out
 }
 
 func jsonContainsSessionID(v any, sessionID string) bool {
