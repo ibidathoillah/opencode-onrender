@@ -155,6 +155,6 @@ func main() {
   http.HandleFunc("/sse/", sseHandler)
   http.HandleFunc("/", proxyHandler)
 
-  log.Println("TinyGo proxy listening on :" + port)
+  log.Println("Go proxy listening on :" + port)
   log.Fatal(http.ListenAndServe(":"+port, nil))
 }
