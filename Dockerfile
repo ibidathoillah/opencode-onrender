@@ -1,16 +1,16 @@
 # =============================
 # Build Go binary
 # =============================
-FROM golang:1.22-alpine AS Build
+FROM golang:1.22-alpine AS build
 
 WORKDIR /src
 COPY main.go .
 
 RUN go build \
-  -o proxy \
-  -target=linux-amd64 \
-  -no-debug \
-  main.go
+  -trimpath \
+  -ldflags="-s -w" \
+  -o /src/proxy \
+  ./main.go
 
 # =============================
 # Runtime
